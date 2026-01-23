@@ -19,11 +19,7 @@ docker run --rm \
   -p 2741:2741 \
   vudongpham/forcelive forcelive /l2dir
 ```
-
-
-<i>Required arguments:</i>
-- `l2dir` \
-  FORCE datacube Level-2 directory path, the "datacube-definition.prj" file MUST exist in this directory
+Replace the `/your/datacube/level2/dir` to your dir!
 
 <i>Optional arguments:</i>
 - `-p` | `--port`: Local port which will be used for hosting the app. Default: `2741` (You must change the docker '-p' correspondigly when changing this)
