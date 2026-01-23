@@ -197,12 +197,14 @@ def main():
     )
     parser.add_argument('-p', '--port',
                         help='Local port forwarding. Default: 2741',
-                        default=2741)
+                        default=2741,type=int)
     args = parser.parse_args()
 
     app.config["LEVEL2_DIR"] = args.level2Dir
 
-    app.run(host="0.0.0.0", port=2741, debug=True)
+    port = args.port
+
+    app.run(host="0.0.0.0", port=port, debug=True)
 
 if __name__ == "__main__":
     main()
