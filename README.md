@@ -15,14 +15,14 @@ docker pull vudongpham/forcelive:latest
 
 ```
 docker run --rm \
-  -v /force/datacube/level2/dir:/l2dir
+  -v /your/datacube/level2/dir:/l2dir
   -p 2741:2741 \
   vudongpham/forcelive forcelive /l2dir
 ```
 
 
 <i>Required arguments:</i>
-- `level2dir` \
+- `l2dir` \
   FORCE datacube Level-2 directory path, the "datacube-definition.prj" file MUST exist in this directory
 
 <i>Optional arguments:</i>
