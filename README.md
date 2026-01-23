@@ -9,10 +9,7 @@ Pull the docker image
 ```
 docker pull vudongpham/forcelive:latest
 ```
-Using singularity
-```
-singularity pull -F ~/forcelive.sif docker://vudongpham/forcelive:latest
-```
+
 
 ### 2. Run
 
