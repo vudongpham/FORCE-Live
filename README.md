@@ -19,7 +19,7 @@ docker run --rm \
   -p 2741:2741 \
   vudongpham/forcelive forcelive /l2dir
 ```
-Replace the `/your/datacube/level2/dir` to your dir!
+Replace the `/your/datacube/level2/dir` with your dir!
 
 <i>Optional arguments:</i>
 - `-p` | `--port`: Local port which will be used for hosting the app. Default: `2741` (You must change the docker '-p' correspondigly when changing this)
