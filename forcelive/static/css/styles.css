@@ -1,0 +1,50 @@
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+#container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+#map {
+  width: 50%;
+  height: 100%;
+}
+
+#info-panel {
+  width: 50%;
+  height: 100%;
+  padding: 1.5rem;
+  box-sizing: border-box;
+  border-left: 1px solid #ccc;
+  background-color: #f7f7f7;
+  font-family: sans-serif;
+}
+
+#info-panel h2 {
+  margin-top: 0;
+}
+
+
+.loader {
+    width: 24px;
+    height: 24px;
+    border: 5px solid #000000;
+    border-bottom-color: transparent;
+    border-radius: 50%;
+    display: inline-block;
+    box-sizing: border-box;
+    animation: rotation 1s linear infinite;
+    }
+
+    @keyframes rotation {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+} 

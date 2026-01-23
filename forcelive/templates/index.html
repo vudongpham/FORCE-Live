@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>FORCE Live</title>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/date-fns"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+</head>
+
+<body>
+  <div id="container">
+    <div id="map"></div>
+
+    <div id="info-panel">
+      <h2>Click on the map to select location</h2>
+      <p>
+        <strong>Latitude:</strong>
+        <span id="lat"></span>
+      </p>
+      <p>
+        <strong>Longitude:</strong>
+        <span id="lng"></span>
+      </p>
+      <p>
+        <strong>Start date:</strong>
+        <input id="startDate" type="date" value="2025-01-01">
+      </p>
+      <p>
+        <strong>End date:</strong>
+        <input id="endDate" type="date" value="2025-05-01">
+      </p>
+      <p>
+        <strong>Sensors:</strong>
+      </p>
+      <p>
+        <!-- <label>
+          <input type="radio" name="toggle" id="allSensors" checked>
+          All sensors
+        </label>
+
+        <label>
+          <input type="radio" name="toggle"  id="selectedSensors">
+            Selected sensors
+          </label> -->
+
+          <div id="sGroups" class="disabled">
+            <label><input type="checkbox" name="selectedSensors" value="LND04" checked>Landsat 4</label>
+            <label><input type="checkbox" name="selectedSensors" value="LND05" checked>Landsat 5</label>
+            <label><input type="checkbox" name="selectedSensors" value="LND07" checked>Landsat 7</label>
+            <label><input type="checkbox" name="selectedSensors" value="LND08" checked>Landsat 8</label>
+            <label><input type="checkbox" name="selectedSensors" value="LND09" checked>Landsat 9</label><br>
+            <label><input type="checkbox" name="selectedSensors" value="SEN2A" checked>Sentinel-2A</label>
+            <label><input type="checkbox" name="selectedSensors" value="SEN2B" checked>Sentinel-2B</label>
+            <label><input type="checkbox" name="selectedSensors" value="SEN2C" checked>Sentinel-2C</label>
+          </div>
+      </p>
+      <p>
+      <label for="Bands"> <strong>Band:</strong></label>
+        <select name="Bands" id="Bands">
+          <option value="BLUE">Blue</option>
+          <option value="GREEN">Green</option>
+          <option value="RED">Red</option>
+          <option value="NIR">Near</option>
+          <option value="SWIR1">Swir1</option>
+          <option value="SWIR2">Swir2</option>
+          <option value="NDVI" selected>NDVI</option>
+        </select>
+      </p>
+      <p><strong>Cloud mask: </strong>
+    
+        <label>
+          <input type="radio" name="cloudOption" value="0" checked>
+          Default
+        </label>
+
+        <label>
+          <input type="radio" name="cloudOption"  value="1">
+            Aggressive
+          </label>
+
+      </p>
+      <p><button id="getData">View time series</button></p>
+      <p><span id="spinner" class="loader" style="display:none;"></span></p>
+      <p id="prog"></p>
+      <canvas id="myChart" width="100px" height="50px"></canvas>
+
+      
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
