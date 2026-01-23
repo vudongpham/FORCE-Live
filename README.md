@@ -1,5 +1,5 @@
 # FORCE Live
-- Web-based visualize time-series data from FORCE datacube
+- Web-based visualizing time-series data from FORCE datacube
 - Data extraction and cloud masking are performed on-the-fly
   
 ![a](https://github.com/user-attachments/assets/0c11c175-2097-4cd4-9a4a-195c851052f6)
