@@ -35,7 +35,7 @@ docker run --rm \
 ### 3. Open any web browser:
 
 ```
-http://localhost:8027
+http://localhost:2741
 ```
 
 `Note`: If you are using VPN, makes sure the web-browser is in the same network as the local network!
