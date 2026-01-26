@@ -15,7 +15,7 @@ docker pull vudongpham/forcelive:latest
 
 ```
 docker run --rm \
-  -v /your/datacube/level2/dir:/l2dir
+  -v /your/datacube/level2/dir:/l2dir \
   -p 2741:2741 \
   vudongpham/forcelive forcelive /l2dir
 ```
