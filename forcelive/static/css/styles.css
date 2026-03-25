@@ -47,4 +47,21 @@ html, body {
     100% {
         transform: rotate(360deg);
     }
-} 
+}
+
+.copybutton {
+    cursor: pointer;
+    transition: all 0.25s ease;
+}
+
+/* Active "copied" state */
+.copybutton.copied {
+    background-color: #4CAF50;
+    color: white;
+    transform: scale(1.05);
+}
+
+/* Optional click animation */
+.copybutton:active {
+    transform: scale(0.95);
+}

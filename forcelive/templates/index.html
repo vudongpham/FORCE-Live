@@ -87,7 +87,11 @@
           </label>
 
       </p>
-      <p><button id="getData">View time series</button></p>
+      <p>
+        <button id="getData">View time series</button>
+        <button class="copybutton" id="copyXbutton" style="display: none;">Copy dates array</button>
+        <button class="copybutton" id="copyYbutton" style="display: none;">Copy reflectance array</button>
+      </p>
       <p><span id="spinner" class="loader" style="display:none;"></span></p>
       <p id="prog"></p>
       <canvas id="myChart" width="100px" height="50px"></canvas>

@@ -140,6 +140,8 @@ function poll() {
               y_data = result.ydata || [];
               // console.log(x_data);
               // console.log(y_data);
+              copy_buttons(x_data, "copyXbutton", "Copy dates array");
+              copy_buttons(y_data, "copyYbutton", "Copy reflectance array");
               plotChart();
             });
         } else if (data.status === "error") {
@@ -179,6 +181,7 @@ function plotChart(){
   } else {
     min_y_axis = 0;
   }
+
 
   // Convert arrays into Chart.js scatter format
   const points = x_date.map((value, i) => ({ x: value, y: y[i] }));
@@ -255,5 +258,32 @@ function plotChart(){
         }
       }
     }
+  });
+}
+
+function copy_buttons(data, button_id, button_text){
+  const button = document.getElementById(button_id);
+
+  button.style.display = "inline-block";
+
+  button.addEventListener('click', async () => {
+      const str = `[${data.join(', ')}]`;
+
+      try {
+          await navigator.clipboard.writeText(str);
+
+          // Change text + style
+          button.textContent = 'Copied!';
+          button.classList.add('copied');
+
+          // Revert after 1.5 seconds
+          setTimeout(() => {
+              button.textContent = button_text;
+              button.classList.remove('copied');
+          }, 1000);
+
+      } catch (err) {
+          console.error('Copy failed:', err);
+      }
   });
 }
