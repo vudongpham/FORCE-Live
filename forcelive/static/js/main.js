@@ -45,31 +45,6 @@ function sendData(lat, lng, startDate, endDate, sensorList, band, cloudMask) {
 
 
 
-// function sensorSelection() {
-//   const optA = document.getElementById("allSensors");
-//   const optB = document.getElementById("selectedSensors");
-//   const bGroup = document.getElementById("sGroups");
-//   const bChecks = bGroup.querySelectorAll("input[type=checkbox]");
-
-//   function update() {
-//     if (optB.checked) {
-//       bGroup.classList.remove("disabled");
-//       bChecks.forEach(c => c.disabled = false);
-//     } else {
-//       bGroup.classList.add("disabled");
-//       bChecks.forEach(c => c.checked = true);
-//       bChecks.forEach(c => c.disabled = true);
-//     }
-//   }
-
-//   optA.addEventListener("change", update);
-//   optB.addEventListener("change", update);
-//   update();
-// }
-
-// sensorSelection();
-
-
 // Click event
 map.on('click', function (e) {
   var lat = e.latlng.lat.toFixed(6);
@@ -197,11 +172,12 @@ function plotChart(){
 
   const min_y = Math.min(y);
 
-  var min_y_axis = 0;
-  var max_y_axis = 10000;
+  var min_y_axis;
 
   if (min_y < 0) {
     min_y_axis = min_y;
+  } else {
+    min_y_axis = 0;
   }
 
   // Convert arrays into Chart.js scatter format
