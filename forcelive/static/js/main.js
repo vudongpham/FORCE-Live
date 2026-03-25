@@ -170,12 +170,12 @@ function plotChart(){
   const min_x_axis = document.getElementById("startDate").value;
   const max_x_axis = document.getElementById("endDate").value;
 
-  const min_y = Math.min(y);
+  const min_y = Math.min(...y);
 
   var min_y_axis;
 
   if (min_y < 0) {
-    min_y_axis = min_y;
+    min_y_axis = min_y - 300;
   } else {
     min_y_axis = 0;
   }
