@@ -21,7 +21,6 @@ result_data = {"xdata": [], "ydata": []}
 def index():
     return render_template("index.html")
 
-
 def batch_sample_BOA_NDVI(image_paths, boa_files, x, y):
     red_list = []
     nir_list = []
@@ -38,13 +37,10 @@ def batch_sample_BOA_NDVI(image_paths, boa_files, x, y):
         else:
             red_band = 3
             nir_band = 8
-        
         with rasterio.open(image_paths[i]) as src:
-            generator = src.sample([(x, y)], indexes=red_band)
-            red_value = next(generator)[0]
-            generator = src.sample([(x, y)], indexes=nir_band)
-            nir_value = next(generator)[0]
-            
+            values = next(src.sample([(x, y)], indexes=[red_band, nir_band]))
+        red_value = values[0]
+        nir_value = values[1]
         red_list.append(red_value)
         nir_list.append(nir_value)
         progress["current"] = i + 1 
@@ -113,11 +109,6 @@ def run_job(l2dir, lat, lng, startDate, endDate, sensorList, band, cloudMaskOpti
         boa_files_path = [os.path.join(tile_path, image) for image in boa_files]
         qai_files_path = [os.path.join(tile_path, image) for image in qai_file]
 
-        if band == 'NDVI':
-            boa_values = batch_sample_BOA_NDVI(boa_files_path, boa_files, coord_x, coord_y)
-        else:
-            boa_values = batch_sample_BOA(boa_files_path, band_list, coord_x, coord_y)
-
         qai_values = batch_sample_QAI(qai_files_path, coord_x, coord_y)
 
         if cloudMaskOption == 1:
@@ -125,10 +116,21 @@ def run_job(l2dir, lat, lng, startDate, endDate, sensorList, band, cloudMaskOpti
         else:
             cso_value = get_cso_value(best_quality=False)
 
-        mask = np.isin(qai_values, cso_value)
+        valids = np.isin(qai_values, cso_value)
 
-        y_value = boa_values[mask]
-        x_value = date_list[mask]
+        boa_files_path = [boa_files_path[i] for i in range(len(boa_files_path)) if valids[i]]
+        date_list = np.array([date_list[i] for i in range(len(date_list)) if valids[i]])
+        boa_files = [boa_files[i] for i in range(len(boa_files)) if valids[i]]
+        band_list = [band_list[i] for i in range(len(band_list)) if valids[i]]
+
+
+        if band == 'NDVI':
+            boa_values = batch_sample_BOA_NDVI(boa_files_path, boa_files, coord_x, coord_y)
+        else:
+            boa_values = batch_sample_BOA(boa_files_path, band_list, coord_x, coord_y)
+
+        y_value = boa_values
+        x_value = date_list
 
         if len(x_value) > 0:
             x_value = x_value.tolist()
