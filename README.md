@@ -31,6 +31,7 @@ Replace the `/your/datacube/level2/dir` with your dir!
 - GDAL directory scanning is disabled (`GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`), so opening a file in a tile folder with thousands of files stays fast.
 - Every pixel value that is read is cached in memory, and the tile file index is cached too. Switching band, cloud mask or date range at the same location is therefore almost instant.
 - Results stream into the chart while they are being read. A new click cancels the previous request.
+- The *Line* dropdown changes how the line through the observations is drawn: linear interpolation, monotone cubic spline, centred moving average (5 observations), Savitzky–Golay (7 observations, quadratic, using the real acquisition dates) or no line. It is computed in the browser, so switching is instant and needs no re-extraction.
 
 
 ### 3. Open any web browser:
