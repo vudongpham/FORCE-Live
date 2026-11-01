@@ -68,6 +68,26 @@ function showTile(tile, outline) {
 // Chart (created once, then updated in place -> smooth transitions)
 // ---------------------------------------------------------------------------
 
+// Hover/tooltip interaction that only considers the observation datasets
+// (Landsat, Sentinel-2) and never the line: with dense lines (harmonic fits,
+// moving average) the line would otherwise almost always be the nearest
+// element, leaving the tooltip with nothing to show.
+const LINE_DS = 2;
+Chart.Interaction.modes.nearestObservation = (chart, e) => {
+  const pos = Chart.helpers.getRelativePosition(e, chart);
+  let best = [], bestDist = Infinity;
+  chart.data.datasets.forEach((ds, di) => {
+    if (di === LINE_DS || !chart.isDatasetVisible(di)) return;
+    chart.getDatasetMeta(di).data.forEach((el, index) => {
+      if (!el || el.skip) return;
+      const d = Math.abs(el.x - pos.x);
+      if (d < bestDist) { bestDist = d; best = [{ element: el, datasetIndex: di, index }]; }
+      else if (d === bestDist) best.push({ element: el, datasetIndex: di, index });
+    });
+  });
+  return best;
+};
+
 const chart = new Chart($('myChart').getContext('2d'), {
   type: 'scatter',
   data: {
@@ -113,7 +133,7 @@ const chart = new Chart($('myChart').getContext('2d'), {
     transitions: {
       active: { animation: { duration: 120 } },
     },
-    interaction: { mode: 'nearest', intersect: false, axis: 'x' },
+    interaction: { mode: 'nearestObservation', intersect: false },
     scales: {
       x: {
         type: 'time',
@@ -128,12 +148,14 @@ const chart = new Chart($('myChart').getContext('2d'), {
     plugins: {
       decimation: { enabled: false },
       legend: {
-        labels: { filter: (item) => item.datasetIndex !== 2 || $('lineMode').value !== 'none' },
+        labels: { filter: (item) => item.datasetIndex !== LINE_DS || $('lineMode').value !== 'none' },
       },
       tooltip: {
-        filter: (item) => item.datasetIndex !== 2,
+        filter: (item) => item.datasetIndex !== LINE_DS,
         callbacks: {
-          title: (items) => new Date(items[0].parsed.x).toLocaleDateString('en-GB').replaceAll('/', '-'),
+          title: (items) => (items.length
+            ? new Date(items[0].parsed.x).toLocaleDateString('en-GB').replaceAll('/', '-')
+            : ''),
           label: (item) => `${item.raw.s || item.dataset.label}: ${item.parsed.y}`,
         },
       },
@@ -325,7 +347,7 @@ function applyLineMode(ds) {
     ds.label += ` (needs ≥ ${mode.minObs} obs.)`;
   }
   // also overrides a legend click that had hidden the line
-  chart.setDatasetVisibility(2, key !== 'none');
+  chart.setDatasetVisibility(LINE_DS, key !== 'none');
 }
 
 function render() {
@@ -349,6 +371,10 @@ function showChart(on) {
 
 function resetChart(startDate, endDate, band) {
   series = [];
+  // drop any hovered point of the previous location: its index may not exist
+  // in the new data
+  chart.setActiveElements([]);
+  chart.tooltip.setActiveElements([], { x: 0, y: 0 });
   const o = chart.options.scales;
   o.x.min = startDate;
   o.x.max = endDate;
