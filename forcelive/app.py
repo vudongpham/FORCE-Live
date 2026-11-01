@@ -1,212 +1,273 @@
-from flask import Flask, render_template, request, jsonify
-import threading
-from .utils import find_tile, get_cso_value, filter_images, get_band_list, days_since_epoch
-import rasterio
-import os
-import numpy as np
-import time
 import argparse
+import os
+import threading
+import time
+import uuid
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
+
+from flask import Flask, jsonify, render_template, request
+
+from .utils import (
+    OutsideImage,
+    band_indexes,
+    filter_scenes,
+    get_cso_value,
+    get_datacube,
+    read_pixel,
+)
 
 app = Flask(
     __name__,
     template_folder="templates",
     static_folder="static",
-    static_url_path="/static"
+    static_url_path="/static",
 )
 
-progress = {"name": 'Blank', "current": 0, "total": 0, "status": "idle"}
-result_data = {"xdata": [], "ydata": []}
+# Pixel reads are I/O bound and GDAL releases the GIL, so a thread pool gives
+# a near-linear speed-up (especially on network file systems).
+DEFAULT_WORKERS = min(32, (os.cpu_count() or 4) * 4)
+executor = None
+
+
+def get_executor():
+    global executor
+    if executor is None:
+        executor = ThreadPoolExecutor(
+            max_workers=app.config.get("WORKERS", DEFAULT_WORKERS),
+            thread_name_prefix="forcelive",
+        )
+    return executor
+
+
+# ---------------------------------------------------------------------------
+# Jobs
+# ---------------------------------------------------------------------------
+
+class Job:
+    def __init__(self):
+        self.id = uuid.uuid4().hex
+        self.lock = threading.Lock()
+        self.cancelled = threading.Event()
+        self.status = "running"
+        self.name = "Preparing data"
+        self.current = 0
+        self.total = 0
+        self.valid = 0
+        self.points = []  # [day, value, sensor] in completion order
+        self.error = None
+        self.started = time.perf_counter()
+        self.elapsed = 0.0
+        self.futures = []
+
+    def snapshot(self, since=0):
+        with self.lock:
+            return {
+                "job": self.id,
+                "status": self.status,
+                "name": self.name,
+                "current": self.current,
+                "total": self.total,
+                "valid": self.valid,
+                "elapsed": round(time.perf_counter() - self.started
+                                 if self.status == "running" else self.elapsed, 3),
+                "points": self.points[since:],
+                "cursor": len(self.points),
+            }
+
+    def finish(self, status, name=None):
+        with self.lock:
+            if self.status != "running":
+                return
+            self.status = status
+            if name is not None:
+                self.name = name
+            self.elapsed = time.perf_counter() - self.started
+
+    def cancel(self):
+        self.cancelled.set()
+        for f in self.futures:
+            f.cancel()
+        self.finish("cancelled", "Cancelled")
+
+
+jobs = OrderedDict()
+jobs_lock = threading.Lock()
+MAX_JOBS = 32
+
+
+def register_job(job):
+    with jobs_lock:
+        jobs[job.id] = job
+        while len(jobs) > MAX_JOBS:
+            _, old = jobs.popitem(last=False)
+            old.cancel()
+
+
+def sample_scene(job, tile_path, scene, x, y, band, cso):
+    """QAI screening + BOA read for one acquisition. Runs in the pool."""
+    if job.cancelled.is_set():
+        return
+    _, day, sensor, boa_name = scene
+    value = None
+    try:
+        qai = read_pixel(os.path.join(tile_path, boa_name.replace("BOA", "QAI")), x, y, (1,))[0]
+        if qai in cso:
+            bands = band_indexes(band, sensor)
+            vals = read_pixel(os.path.join(tile_path, boa_name), x, y, bands)
+            if band == "NDVI":
+                red, nir = vals
+                if nir + red != 0:
+                    value = int(round((nir - red) / (nir + red) * 10000.0))
+            else:
+                value = vals[0]
+    except OutsideImage:
+        pass
+    except Exception as exc:  # unreadable file: report it but keep going
+        app.logger.warning("Failed to read %s: %s", boa_name, exc)
+
+    with job.lock:
+        job.current += 1
+        if value is not None:
+            job.valid += 1
+            job.points.append([day, value, sensor])
+        done = job.current >= job.total
+    if done:
+        job.finish("done", "Done")
+
+
+def start_job(job, l2dir, lat, lng, start_date, end_date, sensors, band, cloud_mask):
+    try:
+        cube = get_datacube(l2dir)
+        tile, x, y, _, _ = cube.locate(lat, lng)
+        tile_path = os.path.join(l2dir, tile)
+        if not os.path.isdir(tile_path):
+            job.finish("error", f"Tile {tile} does not exist in the datacube")
+            return
+
+        scenes = filter_scenes(tile_path, start_date, end_date, sensors)
+        cso = get_cso_value(best_quality=(cloud_mask == 1))
+
+        with job.lock:
+            job.total = len(scenes)
+            job.name = f"Reading {tile}"
+        if not scenes:
+            job.finish("done", "No images found")
+            return
+
+        pool = get_executor()
+        job.futures = [pool.submit(sample_scene, job, tile_path, s, x, y, band, cso)
+                       for s in scenes]
+    except Exception as exc:
+        job.finish("error", f"Error: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
-def batch_sample_BOA_NDVI(image_paths, boa_files, x, y):
-    red_list = []
-    nir_list = []
-    steps = len(image_paths)
-    progress["name"] = 'Screening BOA'                    
-    progress["total"] = steps
-    progress["current"] = 0
-    progress["status"] = "running"
-    for i in range(len(image_paths)):
-        sensor = boa_files[i].split('_')[2]
-        if sensor[:3] == 'LND':
-            red_band = 3
-            nir_band = 4
-        else:
-            red_band = 3
-            nir_band = 8
-        with rasterio.open(image_paths[i]) as src:
-            values = next(src.sample([(x, y)], indexes=[red_band, nir_band]))
-        red_value = values[0]
-        nir_value = values[1]
-        red_list.append(red_value)
-        nir_list.append(nir_value)
-        progress["current"] = i + 1 
-    red_list = np.array(red_list)
-    nir_list = np.array(nir_list)
-    ndvi = ((nir_list - red_list) / (nir_list + red_list)) * 10000.
-    ndvi = ndvi.astype(np.int16)
-    return ndvi  
 
-
-def batch_sample_BOA(image_paths, band_list, x, y):
-    sampled_values = []
-    steps = len(image_paths)
-    progress["name"] = 'Screening BOA'                    
-    progress["total"] = steps
-    progress["current"] = 0
-    progress["status"] = "running"
-
-    for i in range(len(image_paths)):
-        with rasterio.open(image_paths[i]) as src:
-            sample_generator = src.sample([(x, y)], indexes=band_list[i])
-            value = next(sample_generator)[0]  # Extract the first (and only) value
-        sampled_values.append(value)
-        progress["current"] = i + 1
-    return np.array(sampled_values)
-
-
-def batch_sample_QAI(image_paths, x, y):
-    sampled_values = []
-    steps = len(image_paths)
-    progress["name"] = 'Screening QAI'                    
-    progress["total"] = steps
-    progress["current"] = 0
-    progress["status"] = "running"
-    for i in range(len(image_paths)):
-        with rasterio.open(image_paths[i]) as src:
-            sample_generator = src.sample([(x, y)], indexes=1)
-            value = next(sample_generator)[0]  # Extract the first (and only) value
-        sampled_values.append(value)
-        progress["current"] = i + 1
-    return np.array(sampled_values)
-
-def run_job(l2dir, lat, lng, startDate, endDate, sensorList, band, cloudMaskOption):
-    """
-    Long-running job that fills progress while computing and finally
-    stores the result in result_data.
-    """
-    global result_data, progress
-
+@app.route("/sendData", methods=["POST"])
+def send_data():
+    data = request.get_json(force=True)
     try:
-        level_2_dir = l2dir
-        tile, coord_x, coord_y, lat, lng = find_tile(lat, lng, level_2_dir=level_2_dir)
-        tile_path = os.path.join(level_2_dir, tile)
+        lat = float(data["lat"])
+        lng = float(data["lng"])
+        band = data.get("band", "NDVI")
+        band_indexes(band, "LND")  # validate
+        sensors = list(data.get("sensorList") or [])
+        cloud_mask = int(data.get("cloudMask", 0))
+        start_date = data["startDate"]
+        end_date = data["endDate"]
+    except (KeyError, TypeError, ValueError) as exc:
+        return jsonify({"status": "error", "name": f"Bad request: {exc}"}), 400
 
-        boa_files, qai_file = filter_images(
-            tile_path,
-            start_date=startDate,
-            end_date=endDate,
-            sensors_list=sensorList,
-        )
-        band_list = get_band_list(band, boa_files)
+    # cancel the job this client started before (new click supersedes it)
+    prev = data.get("cancel")
+    if prev:
+        with jobs_lock:
+            old = jobs.get(prev)
+        if old:
+            old.cancel()
 
-        date_list = [image[:8] for image in boa_files]
-        date_list = np.array([days_since_epoch(d) for d in date_list])
-
-        boa_files_path = [os.path.join(tile_path, image) for image in boa_files]
-        qai_files_path = [os.path.join(tile_path, image) for image in qai_file]
-
-        qai_values = batch_sample_QAI(qai_files_path, coord_x, coord_y)
-
-        if cloudMaskOption == 1:
-            cso_value = get_cso_value(best_quality=True)
-        else:
-            cso_value = get_cso_value(best_quality=False)
-
-        valids = np.isin(qai_values, cso_value)
-
-        boa_files_path = [boa_files_path[i] for i in range(len(boa_files_path)) if valids[i]]
-        date_list = np.array([date_list[i] for i in range(len(date_list)) if valids[i]])
-        boa_files = [boa_files[i] for i in range(len(boa_files)) if valids[i]]
-        band_list = [band_list[i] for i in range(len(band_list)) if valids[i]]
-
-
-        if band == 'NDVI':
-            boa_values = batch_sample_BOA_NDVI(boa_files_path, boa_files, coord_x, coord_y)
-        else:
-            boa_values = batch_sample_BOA(boa_files_path, band_list, coord_x, coord_y)
-
-        y_value = boa_values
-        x_value = date_list
-
-        if len(x_value) > 0:
-            x_value = x_value.tolist()
-            y_value = y_value.tolist()
-        else:
-            x_value = []
-            y_value = []
-
-        # store results for the frontend
-        result_data["xdata"] = x_value
-        result_data["ydata"] = y_value
-
-        # mark job as finished
-        progress["status"] = "done"
-    except Exception as exc:
-        progress["name"] = f"Error: {exc}"
-        progress["status"] = "error"
-
-
-@app.route('/sendData', methods=['POST'])
-def app_run():
-    data = request.get_json()
-    lat = data.get('lat')
-    lng = data.get('lng')
-    startDate = data.get('startDate')
-    endDate = data.get('endDate')
-    sensorList = data.get('sensorList')
-    band = data.get('band')
-    cloudMaskOption = int(data.get('cloudMask'))
-
-    # read the startup arg from config
     l2dir = app.config["LEVEL2_DIR"]
+    tile_info = {}
+    try:
+        cube = get_datacube(l2dir)
+        tile, _, _, tx, ty = cube.locate(lat, lng)
+        tile_info = {"tile": tile, "outline": cube.tile_outline(tx, ty)}
+    except Exception:
+        pass
 
-    # reset progress + result at the start of a new request
-    progress["name"] = "Preparing data"
-    progress["current"] = 0
-    progress["total"] = 0
-    progress["status"] = "running"
-    result_data["xdata"] = []
-    result_data["ydata"] = []
+    job = Job()
+    register_job(job)
+    # scheduling is quick (directory index is cached), the reads run in the pool
+    start_job(job, l2dir, lat, lng, start_date, end_date, sensors, band, cloud_mask)
+    snap = job.snapshot()
+    snap.update(tile_info)
+    return jsonify(snap)
 
-    # run the heavy work in a background thread
-    thread = threading.Thread(
-        target=run_job,
-        args=(l2dir, lat, lng, startDate, endDate, sensorList, band, cloudMaskOption),
-        daemon=True,
-    )
-    thread.start()
 
-    # return immediately; browser will poll /progress and /results
-    return jsonify({"status": "started"})
+@app.route("/status/<job_id>")
+def status(job_id):
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if job is None:
+        return jsonify({"status": "error", "name": "Unknown job"}), 404
+    since = request.args.get("since", default=0, type=int)
+    return jsonify(job.snapshot(since))
 
-@app.route("/results")
-def get_results():
-    return jsonify(result_data)
 
-@app.route("/progress")
-def get_progress():
-    return jsonify(progress)
+@app.route("/cancel/<job_id>", methods=["POST"])
+def cancel(job_id):
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if job:
+        job.cancel()
+    return jsonify({"status": "cancelled"})
+
+
+@app.route("/tile")
+def tile_lookup():
+    """Tile name + outline for a coordinate (used for the hover/click overlay)."""
+    try:
+        cube = get_datacube(app.config["LEVEL2_DIR"])
+        tile, _, _, tx, ty = cube.locate(request.args["lat"], request.args["lng"])
+        exists = os.path.isdir(os.path.join(app.config["LEVEL2_DIR"], tile))
+        return jsonify({"tile": tile, "exists": exists, "outline": cube.tile_outline(tx, ty)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
 
 def main():
-    parser = argparse.ArgumentParser(prog='FORCE Live', description="Web-based tool for inspecting force datacube time-series data", add_help=True)
-    parser.add_argument(
-        'level2Dir',
-        help='FORCE datacube Level-2 directory path, the "datacube-definition.prj" file MUST exist in this directory'
+    parser = argparse.ArgumentParser(
+        prog="FORCE Live",
+        description="Web-based tool for inspecting force datacube time-series data",
+        add_help=True,
     )
-    parser.add_argument('-p', '--port',
-                        help='Local port forwarding. Default: 2741',
-                        default=2741,type=int)
+    parser.add_argument(
+        "level2Dir",
+        help='FORCE datacube Level-2 directory path, the "datacube-definition.prj" file MUST exist in this directory',
+    )
+    parser.add_argument("-p", "--port", help="Local port forwarding. Default: 2741", default=2741, type=int)
+    parser.add_argument("-w", "--workers", type=int, default=DEFAULT_WORKERS,
+                        help=f"Number of parallel reader threads. Default: {DEFAULT_WORKERS}")
+    parser.add_argument("--debug", action="store_true", help="Run Flask in debug mode")
     args = parser.parse_args()
 
     app.config["LEVEL2_DIR"] = args.level2Dir
+    app.config["WORKERS"] = max(1, args.workers)
 
-    port = args.port
+    # warm up: parse the datacube definition once at start-up
+    get_datacube(args.level2Dir)
 
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=args.port, debug=args.debug, threaded=True,
+            use_reloader=args.debug)
+
 
 if __name__ == "__main__":
     main()
