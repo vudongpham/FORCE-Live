@@ -69,9 +69,7 @@
       </div>
 
       <div class="row">
-        <label title="Load the time series as soon as you click on the map or change an option">
-          <input type="checkbox" id="autoRun" checked> Load automatically on click
-        </label>
+        <button id="stopButton" disabled title="Stop the running data extraction">Stop</button>
       </div>
 
       <div class="row">
@@ -84,7 +82,7 @@
       <div id="progressWrap" aria-hidden="true"><div id="progressBar"></div></div>
       <p id="prog" aria-live="polite"></p>
 
-      <div id="chartWrap"><canvas id="myChart"></canvas></div>
+      <div id="chartWrap" hidden><canvas id="myChart"></canvas></div>
     </div>
   </div>
 </body>
