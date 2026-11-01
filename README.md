@@ -23,6 +23,14 @@ Replace the `/your/datacube/level2/dir` with your dir!
 
 <i>Optional arguments:</i>
 - `-p` | `--port`: Local port which will be used for hosting the app. Default: `2741` (You must change the docker '-p' correspondigly when changing this)
+- `-w` | `--workers`: Number of parallel threads used to read the images. Default: `4 x CPU cores` (max 32). Increase it when the datacube is on a network file system.
+- `--debug`: Run Flask in debug mode.
+
+### Performance notes
+- Images are read in parallel, and only the 1x1 pixel window that is needed gets read. QAI screening and BOA reading happen in a single pass, so cloudy scenes never open their BOA file.
+- GDAL directory scanning is disabled (`GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`), so opening a file in a tile folder with thousands of files stays fast.
+- Every pixel value that is read is cached in memory, and the tile file index is cached too. Switching band, cloud mask or date range at the same location is therefore almost instant.
+- Results stream into the chart while they are being read. A new click cancels the previous request.
 
 
 ### 3. Open any web browser:
