@@ -93,6 +93,17 @@ html, body {
   min-height: 280px;
 }
 
+#chartWrap[hidden] {
+  display: none;
+}
+
+#stopButton:not(:disabled) {
+  cursor: pointer;
+  color: #fff;
+  background-color: #b00020;
+  border: 1px solid #8a0019;
+}
+
 .copybutton {
   cursor: pointer;
   transition: background-color 0.25s ease, color 0.25s ease, transform 0.25s ease;

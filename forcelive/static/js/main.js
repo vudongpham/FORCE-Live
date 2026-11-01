@@ -2,7 +2,6 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const POLL_MS = 120;          // status poll interval while a job is running
-const OPTION_DEBOUNCE_MS = 250;
 
 const COLORS = {
   LND: { face: 'rgb(197, 27, 138)', edge: 'rgb(0, 0, 0)' },
@@ -50,6 +49,7 @@ function setLoading(on) {
   const el = pulseRing && pulseRing.getElement && pulseRing.getElement();
   if (el) el.classList.toggle('pulse', on);
   $('progressWrap').classList.toggle('active', on);
+  $('stopButton').disabled = !on;
 }
 
 function showTile(tile, outline) {
@@ -138,9 +138,9 @@ const chart = new Chart($('myChart').getContext('2d'), {
   },
 });
 
-// raw points of the current job, kept sorted by date
+// raw points of the current job, kept sorted by date. Points are collected
+// silently while the extraction runs; the chart is drawn only once it ends.
 let series = [];
-let renderQueued = false;
 
 function insertSorted(points) {
   for (const p of points) {
@@ -153,15 +153,6 @@ function insertSorted(points) {
     }
     series.splice(lo, 0, pt);
   }
-}
-
-function scheduleRender() {
-  if (renderQueued) return;
-  renderQueued = true;
-  requestAnimationFrame(() => {
-    renderQueued = false;
-    render();
-  });
 }
 
 function render() {
@@ -178,28 +169,25 @@ function render() {
   chart.update();
 }
 
-// The old curve stays on screen until the first points of the new job arrive,
-// so Chart.js morphs old -> new (e.g. when switching band) instead of blinking.
-let pendingReset = null;
-
-function resetChart(startDate, endDate, band) {
-  pendingReset = { startDate, endDate, band };
+function showChart(on) {
+  $('chartWrap').hidden = !on;
+  if (on) chart.resize();
 }
 
-function applyReset() {
-  const { startDate, endDate, band } = pendingReset;
-  pendingReset = null;
+function resetChart(startDate, endDate, band) {
   series = [];
   const o = chart.options.scales;
   o.x.min = startDate;
   o.x.max = endDate;
   o.y.title.text = band === 'NDVI' ? 'NDVI × 10000' : `${band} reflectance × 10000`;
+  showChart(false);
 }
 
-// initial empty chart spans the selected date range
-resetChart($('startDate').value, $('endDate').value, $('Bands').value);
-applyReset();
-chart.update('none');
+// draw the collected points (called once, when the extraction has ended)
+function showResults() {
+  showChart(true);
+  render();
+}
 
 // ---------------------------------------------------------------------------
 // Jobs: start, stream results, cancel
@@ -288,15 +276,7 @@ async function startJob(silent) {
 function handleStatus(data, cursor) {
   if (data.job !== currentJob) return;   // stale response of a superseded job
 
-  const hasPoints = data.points && data.points.length;
-  if (pendingReset && (hasPoints || data.status !== 'running')) {
-    applyReset();
-    scheduleRender();
-  }
-  if (hasPoints) {
-    insertSorted(data.points);
-    scheduleRender();
-  }
+  if (data.points && data.points.length) insertSorted(data.points);
   cursor = data.cursor;
   setProgress(data.current, data.total);
 
@@ -307,11 +287,16 @@ function handleStatus(data, cursor) {
   }
 
   setLoading(false);
+  const t = data.elapsed != null ? ` in ${data.elapsed.toFixed(2)} s` : '';
   if (data.status === 'done') {
-    const t = data.elapsed != null ? ` in ${data.elapsed.toFixed(2)} s` : '';
     setStatus(data.total
       ? `${data.valid} clear observations out of ${data.total} images${t}`
       : (data.name || 'No images found'));
+    showResults();
+    setExportEnabled(series.length > 0);
+  } else if (data.status === 'cancelled') {
+    setStatus(`Stopped: ${series.length} clear observations from ${data.current} / ${data.total} images read${t}`);
+    if (series.length) showResults();
     setExportEnabled(series.length > 0);
   } else if (data.status === 'error') {
     setStatus(data.name || 'Error while processing', true);
@@ -339,27 +324,27 @@ map.on('click', (e) => {
   $('lng').textContent = e.latlng.lng.toFixed(6);
   showLocation(e.latlng);
 
-  if ($('autoRun').checked) {
-    startJob(true);
-  } else {
-    fetch(`/tile?lat=${e.latlng.lat}&lng=${e.latlng.lng}`)
-      .then((r) => r.json())
-      .then((d) => showTile(d.tile, d.outline))
-      .catch(() => {});
-  }
+  fetch(`/tile?lat=${e.latlng.lat}&lng=${e.latlng.lng}`)
+    .then((r) => r.json())
+    .then((d) => showTile(d.tile, d.outline))
+    .catch(() => {});
 });
 
 $('getData').addEventListener('click', () => startJob(false));
 
-// re-run automatically when an option changes (cached pixels make this instant)
-let optionTimer = null;
-function onOptionChange() {
-  if (!$('autoRun').checked || !$('lat').textContent) return;
-  clearTimeout(optionTimer);
-  optionTimer = setTimeout(() => startJob(true), OPTION_DEBOUNCE_MS);
-}
-document.querySelectorAll('#info-panel select, #info-panel input:not(#autoRun)')
-  .forEach((el) => el.addEventListener('change', onOptionChange));
+// Stop: ask the server to cancel; the polling loop then receives the
+// 'cancelled' status and draws whatever was extracted so far.
+$('stopButton').addEventListener('click', async () => {
+  const jobId = currentJob;
+  if (!jobId) return;
+  $('stopButton').disabled = true;
+  setStatus('Stopping…');
+  try {
+    await fetch(`/cancel/${jobId}`, { method: 'POST' });
+  } catch (err) {
+    console.error('Error stopping job:', err);
+  }
+});
 
 // export buttons: one listener each, reading the *current* data on click
 function flash(button, text) {
