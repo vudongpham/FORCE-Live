@@ -212,7 +212,7 @@ function savitzkyGolay(pts, window, order) {
   });
 }
 
-// tiny Gaussian elimination with partial pivoting (m <= 3 here)
+// tiny Gaussian elimination with partial pivoting (m <= 8 here)
 function solve(A, b) {
   const m = b.length;
   for (let col = 0; col < m; col++) {
@@ -236,6 +236,69 @@ function solve(A, b) {
   return x;
 }
 
+// Harmonic regression (Zhu et al. 2015, https://doi.org/10.1016/j.rse.2015.02.009):
+//   y = c0 + c1 cos(wt) + c2 sin(wt) + c3 t            (basic)
+//       + c4 cos(2wt) + c5 sin(2wt)                     (advanced)
+//       + c6 cos(3wt) + c7 sin(3wt)                     (full)
+// with w = 2*pi / 365.25 and t in days. Fitted by least squares on all
+// observations and evaluated on a daily grid between the first and last one.
+const HARMONIC_T = 365.25;
+const HARMONIC_ORDERS = { basic: 1, advanced: 2, full: 3 };
+const HARMONIC_MAX_SAMPLES = 2000;   // max evaluation points (keeps long series fast)
+
+function harmonicRow(t, nHarm) {
+  // t is in days relative to the first observation (better conditioning than
+  // days since 1970; the shift is absorbed by the intercept and the phases).
+  // The trend column is in years so all columns have similar magnitude; this
+  // only rescales its coefficient, the fitted curve is identical.
+  const w = 2 * Math.PI / HARMONIC_T;
+  const row = [1, Math.cos(w * t), Math.sin(w * t), t / HARMONIC_T];
+  for (let k = 2; k <= nHarm; k++) row.push(Math.cos(k * w * t), Math.sin(k * w * t));
+  return row;
+}
+
+function harmonicFit(pts, model) {
+  const n = pts.length;
+  const nHarm = HARMONIC_ORDERS[model];
+  const m = 2 + 2 * nHarm;            // number of coefficients
+  if (n < m) return null;             // under-determined: not enough observations
+
+  const t0 = pts[0].x;
+  const A = Array.from({ length: m }, () => new Float64Array(m));
+  const b = new Float64Array(m);
+  for (const p of pts) {
+    const r = harmonicRow((p.x - t0) / DAY_MS, nHarm);
+    for (let i = 0; i < m; i++) {
+      b[i] += r[i] * p.y;
+      for (let j = i; j < m; j++) A[i][j] += r[i] * r[j];
+    }
+  }
+  for (let i = 0; i < m; i++) for (let j = 0; j < i; j++) A[i][j] = A[j][i];
+  const c = solve(A, b);
+  if (!c || !c.every(Number.isFinite)) return null;
+
+  const spanDays = (pts[n - 1].x - t0) / DAY_MS;
+  const step = Math.max(1, Math.ceil(spanDays / HARMONIC_MAX_SAMPLES));
+  const out = [];
+  for (let d = 0; d <= spanDays; d += step) {
+    const r = harmonicRow(d, nHarm);
+    let y = 0;
+    for (let i = 0; i < m; i++) y += c[i] * r[i];
+    out.push({ x: t0 + d * DAY_MS, y: Math.round(y) });
+  }
+  return out;
+}
+
+function harmonicMode(model, label) {
+  return {
+    label,
+    tension: 0,
+    data: (pts) => harmonicFit(pts, model) || [],
+    // shown in the status line when the fit is not possible
+    minObs: 2 + 2 * HARMONIC_ORDERS[model],
+  };
+}
+
 const LINE_MODES = {
   linear: { label: 'Linear interpolation', tension: 0, data: (pts) => pts.slice() },
   // Chart.js monotone cubic interpolation: smooth, passes through every
@@ -245,6 +308,9 @@ const LINE_MODES = {
             data: (pts) => movingAverage(pts, MOVAVG_WINDOW) },
   savgol: { label: `Savitzky–Golay (${SAVGOL_WINDOW} obs.)`, cubic: 'monotone',
             data: (pts) => savitzkyGolay(pts, SAVGOL_WINDOW, SAVGOL_ORDER) },
+  harmBasic:    harmonicMode('basic', 'Harmonic basic'),
+  harmAdvanced: harmonicMode('advanced', 'Harmonic advanced'),
+  harmFull:     harmonicMode('full', 'Harmonic full'),
   none:   { label: 'Line', tension: 0, data: () => [] },
 };
 
@@ -255,6 +321,9 @@ function applyLineMode(ds) {
   ds.cubicInterpolationMode = mode.cubic || 'default';
   ds.tension = mode.tension || 0;
   ds.data = mode.data(series);
+  if (mode.minObs && series.length && !ds.data.length) {
+    ds.label += ` (needs ≥ ${mode.minObs} obs.)`;
+  }
   // also overrides a legend click that had hidden the line
   chart.setDatasetVisibility(2, key !== 'none');
 }
