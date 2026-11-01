@@ -87,7 +87,6 @@ const chart = new Chart($('myChart').getContext('2d'), {
         data: [],
         pointRadius: 5,
         pointHoverRadius: 8,
-        pointStyle: 'triangle',
         backgroundColor: COLORS.SEN.face,
         borderColor: COLORS.SEN.edge,
         borderWidth: 1,
