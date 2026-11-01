@@ -127,6 +127,9 @@ const chart = new Chart($('myChart').getContext('2d'), {
     },
     plugins: {
       decimation: { enabled: false },
+      legend: {
+        labels: { filter: (item) => item.datasetIndex !== 2 || $('lineMode').value !== 'none' },
+      },
       tooltip: {
         filter: (item) => item.datasetIndex !== 2,
         callbacks: {
@@ -155,13 +158,114 @@ function insertSorted(points) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Line modes: how the line through the observations is drawn. All are O(n)
+// on the already sorted series, so switching is instant.
+// ---------------------------------------------------------------------------
+
+const MOVAVG_WINDOW = 5;     // observations, centred
+const SAVGOL_WINDOW = 7;     // observations, centred
+const SAVGOL_ORDER = 2;      // local polynomial degree
+
+// centred moving average over a fixed number of observations
+// (the window shrinks symmetrically at the ends of the series)
+function movingAverage(pts, window) {
+  const half = window >> 1;
+  const n = pts.length;
+  const prefix = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) prefix[i + 1] = prefix[i] + pts[i].y;
+  return pts.map((p, i) => {
+    const h = Math.min(half, i, n - 1 - i);
+    const sum = prefix[i + h + 1] - prefix[i - h];
+    return { x: p.x, y: Math.round(sum / (2 * h + 1)) };
+  });
+}
+
+// Savitzky–Golay style smoothing for irregularly spaced data: a least-squares
+// polynomial is fitted to the observations in a centred window (using the real
+// acquisition dates) and evaluated at the centre point.
+function savitzkyGolay(pts, window, order) {
+  const half = window >> 1;
+  const n = pts.length;
+  return pts.map((p, i) => {
+    const lo = Math.max(0, i - half);
+    const hi = Math.min(n - 1, i + half);
+    const deg = Math.min(order, hi - lo);   // never more terms than points
+    if (deg < 1) return { x: p.x, y: p.y };
+    const m = deg + 1;
+    // normal equations A c = b, x in days relative to the centre point
+    const A = Array.from({ length: m }, () => new Float64Array(m));
+    const b = new Float64Array(m);
+    for (let k = lo; k <= hi; k++) {
+      const t = (pts[k].x - p.x) / DAY_MS;
+      const pw = new Float64Array(2 * m - 1);
+      pw[0] = 1;
+      for (let j = 1; j < pw.length; j++) pw[j] = pw[j - 1] * t;
+      for (let r = 0; r < m; r++) {
+        b[r] += pw[r] * pts[k].y;
+        for (let c = 0; c < m; c++) A[r][c] += pw[r + c];
+      }
+    }
+    const c = solve(A, b);
+    // c[0] is the fitted value at t = 0, i.e. at the centre observation
+    return { x: p.x, y: c && Number.isFinite(c[0]) ? Math.round(c[0]) : p.y };
+  });
+}
+
+// tiny Gaussian elimination with partial pivoting (m <= 3 here)
+function solve(A, b) {
+  const m = b.length;
+  for (let col = 0; col < m; col++) {
+    let piv = col;
+    for (let r = col + 1; r < m; r++) if (Math.abs(A[r][col]) > Math.abs(A[piv][col])) piv = r;
+    if (Math.abs(A[piv][col]) < 1e-12) return null;
+    [A[col], A[piv]] = [A[piv], A[col]];
+    [b[col], b[piv]] = [b[piv], b[col]];
+    for (let r = col + 1; r < m; r++) {
+      const f = A[r][col] / A[col][col];
+      for (let c = col; c < m; c++) A[r][c] -= f * A[col][c];
+      b[r] -= f * b[col];
+    }
+  }
+  const x = new Float64Array(m);
+  for (let r = m - 1; r >= 0; r--) {
+    let s = b[r];
+    for (let c = r + 1; c < m; c++) s -= A[r][c] * x[c];
+    x[r] = s / A[r][r];
+  }
+  return x;
+}
+
+const LINE_MODES = {
+  linear: { label: 'Linear interpolation', tension: 0, data: (pts) => pts.slice() },
+  // Chart.js monotone cubic interpolation: smooth, passes through every
+  // observation and never overshoots between them
+  spline: { label: 'Spline (monotone cubic)', cubic: 'monotone', data: (pts) => pts.slice() },
+  movavg: { label: `Moving average (${MOVAVG_WINDOW} obs.)`, tension: 0,
+            data: (pts) => movingAverage(pts, MOVAVG_WINDOW) },
+  savgol: { label: `Savitzky–Golay (${SAVGOL_WINDOW} obs.)`, cubic: 'monotone',
+            data: (pts) => savitzkyGolay(pts, SAVGOL_WINDOW, SAVGOL_ORDER) },
+  none:   { label: 'Line', tension: 0, data: () => [] },
+};
+
+function applyLineMode(ds) {
+  const key = $('lineMode').value;
+  const mode = LINE_MODES[key] || LINE_MODES.linear;
+  ds.label = mode.label;
+  ds.cubicInterpolationMode = mode.cubic || 'default';
+  ds.tension = mode.tension || 0;
+  ds.data = mode.data(series);
+  // also overrides a legend click that had hidden the line
+  chart.setDatasetVisibility(2, key !== 'none');
+}
+
 function render() {
   const lnd = [], sen = [];
   for (const p of series) (p.s.startsWith('LND') ? lnd : sen).push(p);
   const ds = chart.data.datasets;
   ds[0].data = lnd;
   ds[1].data = sen;
-  ds[2].data = series.slice();
+  applyLineMode(ds[2]);
 
   const ys = series.map((p) => p.y);
   const minY = ys.length ? Math.min(...ys) : 0;
@@ -331,6 +435,11 @@ map.on('click', (e) => {
 });
 
 $('getData').addEventListener('click', () => startJob(false));
+
+// redraw the line in the chosen mode; no new extraction needed
+$('lineMode').addEventListener('change', () => {
+  if (!$('chartWrap').hidden) render();
+});
 
 // Stop: ask the server to cancel; the polling loop then receives the
 // 'cancelled' status and draws whatever was extracted so far.

@@ -66,6 +66,16 @@
           <label><input type="radio" name="cloudOption" value="0" checked> Default</label>
           <label><input type="radio" name="cloudOption" value="1"> Aggressive</label>
         </span>
+
+        <label for="lineMode"><strong>Line:</strong>
+          <select id="lineMode" title="How the line through the observations is drawn (applied instantly, no re-extraction)">
+            <option value="linear" selected>Linear interpolation</option>
+            <option value="spline">Spline (monotone cubic)</option>
+            <option value="movavg">Moving average (5 obs.)</option>
+            <option value="savgol">Savitzky–Golay (7 obs., quadratic)</option>
+            <option value="none">No line</option>
+          </select>
+        </label>
       </div>
 
       <div class="row">
