@@ -396,8 +396,8 @@ let currentJob = null;
 let pollTimer = null;
 
 function readOptions() {
-  const lat = $('lat').textContent;
-  const lng = $('lng').textContent;
+  const lat = $('lat').value.trim();
+  const lng = $('lng').value.trim();
   const startDate = $('startDate').value;
   const endDate = $('endDate').value;
   const sensorList = Array.from(
@@ -518,18 +518,79 @@ function poll(jobId, cursor) {
 // UI wiring
 // ---------------------------------------------------------------------------
 
-map.on('click', (e) => {
-  $('lat').textContent = e.latlng.lat.toFixed(6);
-  $('lng').textContent = e.latlng.lng.toFixed(6);
-  showLocation(e.latlng);
+function selectLocation(latlng, { pan = false } = {}) {
+  $('lat').value = latlng.lat.toFixed(6);
+  $('lng').value = latlng.lng.toFixed(6);
+  $('lat').classList.remove('invalid');
+  $('lng').classList.remove('invalid');
+  showLocation(latlng);
+  if (pan) map.setView(latlng, Math.max(map.getZoom(), 14));
 
-  fetch(`/tile?lat=${e.latlng.lat}&lng=${e.latlng.lng}`)
+  fetch(`/tile?lat=${latlng.lat}&lng=${latlng.lng}`)
     .then((r) => r.json())
     .then((d) => showTile(d.tile, d.outline))
     .catch(() => {});
+}
+
+map.on('click', (e) => selectLocation(e.latlng));
+
+// Manual coordinate entry: "Go to" button or Enter in either field.
+// Pasting "lat,lng" (e.g. 52.11354,8.27282) into either field fills both.
+function splitPair(input) {
+  const parts = input.value.split(/[,;\s]+/).filter(Boolean);
+  if (parts.length === 2) {
+    $('lat').value = parts[0];
+    $('lng').value = parts[1];
+    return true;
+  }
+  return false;
+}
+
+['lat', 'lng'].forEach((id) => {
+  $(id).addEventListener('input', (e) => {
+    e.target.classList.remove('invalid');
+    if (e.target.value.includes(',')) splitPair(e.target);
+  });
 });
 
-$('getData').addEventListener('click', () => startJob(false));
+// Validate the typed coordinates; returns an L.LatLng or null (and flags errors).
+function readTypedCoords() {
+  splitPair($('lat'));
+  const latStr = $('lat').value.trim();
+  const lngStr = $('lng').value.trim();
+  const num = /^[-+]?\d+(\.\d+)?$/;
+  const lat = Number(latStr);
+  const lng = Number(lngStr);
+  const latOk = num.test(latStr) && lat >= -90 && lat <= 90;
+  const lngOk = num.test(lngStr) && lng >= -180 && lng <= 180;
+  $('lat').classList.toggle('invalid', !latOk);
+  $('lng').classList.toggle('invalid', !lngOk);
+  if (!latOk || !lngOk) {
+    setStatus('Invalid coordinates: latitude must be -90..90 and longitude -180..180 (decimal degrees)', true);
+    return null;
+  }
+  return L.latLng(lat, lng);
+}
+
+$('coordForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const latlng = readTypedCoords();
+  if (!latlng) return;
+  setStatus('');
+  selectLocation(latlng, { pan: true });
+});
+
+$('getData').addEventListener('click', () => {
+  // If coordinates were typed but not pinned yet, pin them first.
+  if ($('lat').value.trim() || $('lng').value.trim()) {
+    const latlng = readTypedCoords();
+    if (!latlng) return;
+    if (!clickMarker || !clickMarker.getLatLng().equals(latlng, 1e-6)) {
+      selectLocation(latlng, { pan: true });
+    }
+  }
+  startJob(false);
+});
 
 // redraw the line in the chosen mode; no new extraction needed
 $('lineMode').addEventListener('change', () => {

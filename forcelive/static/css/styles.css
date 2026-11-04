@@ -53,6 +53,16 @@ html, body {
   font-family: monospace;
 }
 
+input.coord {
+  width: 8.5em;
+  font-family: monospace;
+}
+
+input.coord.invalid {
+  border-color: #b00020;
+  outline: 1px solid #b00020;
+}
+
 /* thin progress bar: animates width with the compositor, no layout jank */
 #progressWrap {
   height: 4px;

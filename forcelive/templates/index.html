@@ -24,13 +24,20 @@
     <div id="map"></div>
 
     <div id="info-panel">
-      <h2>Click on the map to select location</h2>
+      <h2>Click on the map or enter coordinates to select location</h2>
 
-      <div class="row">
-        <span><strong>Latitude:</strong> <span id="lat"></span></span>
-        <span><strong>Longitude:</strong> <span id="lng"></span></span>
+      <form class="row" id="coordForm" autocomplete="off">
+        <label><strong>Latitude:</strong>
+          <input id="lat" class="coord" type="text" inputmode="decimal" placeholder="e.g. 52.11354"
+                 title="Latitude in decimal degrees (-90 to 90). You can also paste &quot;lat,lng&quot; here.">
+        </label>
+        <label><strong>Longitude:</strong>
+          <input id="lng" class="coord" type="text" inputmode="decimal" placeholder="e.g. 8.27282"
+                 title="Longitude in decimal degrees (-180 to 180)">
+        </label>
+        <button id="gotoButton" type="submit" title="Pin this location on the map">Go to</button>
         <span><strong>Tile:</strong> <span id="tile"></span></span>
-      </div>
+      </form>
 
       <div class="row">
         <label><strong>Start date:</strong> <input id="startDate" type="date" value="2025-01-01"></label>
