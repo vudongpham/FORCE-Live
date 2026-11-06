@@ -12,12 +12,13 @@ import os
 import re
 import struct
 import threading
+import warnings
 import zlib
 from collections import OrderedDict
 
 import numpy as np
 import rasterio
-from rasterio.errors import RasterioIOError
+from rasterio.errors import NotGeoreferencedWarning, RasterioIOError
 from rasterio.crs import CRS
 from rasterio.transform import Affine, from_bounds
 from rasterio.warp import Resampling, reproject, transform_bounds
@@ -25,6 +26,15 @@ from rasterio.windows import Window, WindowError
 from rasterio.windows import from_bounds as window_from_bounds
 
 from .bands import NODATA, band_table
+
+# rasterio.warp.reproject() wraps a temporary in-memory dataset around the
+# numpy arrays and silences this warning while it does so (the transform
+# is set right after). That silencing uses warnings.catch_warnings(), which
+# is not thread safe: when several map tiles are rendered at the same time,
+# one thread can restore the warning filters while another is still inside,
+# and a spurious "Dataset has no geotransform" warning is printed. The
+# rendered tiles are correct, so the warning is turned off for rasterio.
+warnings.filterwarnings("ignore", category=NotGeoreferencedWarning, module=r"rasterio(\.|$)")
 
 TILE = 256
 MERCATOR = CRS.from_epsg(3857)
