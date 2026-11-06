@@ -89,7 +89,8 @@ def test_overlay_tile(client):
     n = 1 << z
     x = int((LNG + 180) / 360 * n)
     y = int((1 - math.asinh(math.tan(math.radians(LAT))) / math.pi) / 2 * n)
-    r = client.get(f"/overlay/{z}/{x}/{y}.png?scene=20240115_LEVEL2_SEN2A_BOA.tif&vis=true")
+    url = f"/overlay/{z}/{x}/{y}.png?tile=X0000_Y0000&scene=20240115_LEVEL2_SEN2A_BOA.tif"
+    r = client.get(url + "&vis=true")
     assert r.status_code == 200 and r.mimetype == "image/png"
     with MemoryFile(r.data) as mem, mem.open() as src:
         rgba = src.read()
@@ -100,14 +101,33 @@ def test_overlay_tile(client):
     expected = round((1000 / 3000) ** (1 / 1.2) * 255)
     assert abs(int(np.median(rgba[0][opaque])) - expected) <= 1
 
-    # far away from the datacube: transparent
-    r = client.get("/overlay/14/0/0.png?scene=20240115_LEVEL2_SEN2A_BOA.tif")
+    # only the tile of the time series is rendered, not its neighbour
+    # X0001_Y0000 (which has the same scene): a zoom-12 web tile holding
+    # both tiles is only partly opaque, and only on the side of X0000_Y0000
+    z12 = 12
+    n12 = 1 << z12
+    x12 = int((LNG + 180) / 360 * n12)
+    y12 = int((1 - math.asinh(math.tan(math.radians(LAT))) / math.pi) / 2 * n12)
+    alpha = {}
+    for tile in ("X0000_Y0000", "X0001_Y0000"):
+        r = client.get(f"/overlay/{z12}/{x12}/{y12}.png?tile={tile}&scene=20240115_LEVEL2_SEN2A_BOA.tif")
+        with MemoryFile(r.data) as mem, mem.open() as src:
+            alpha[tile] = src.read(4) == 255
+    a0, a1 = alpha["X0000_Y0000"], alpha["X0001_Y0000"]
+    assert a0.any() and a1.any() and not (a0 & a1).any()
+    assert np.nonzero(a0)[1].mean() < np.nonzero(a1)[1].mean()   # X0000 is west of X0001
+
+    # far away from the tile: transparent
+    r = client.get("/overlay/14/0/0.png?tile=X0000_Y0000&scene=20240115_LEVEL2_SEN2A_BOA.tif")
     assert r.status_code == 200
     with MemoryFile(r.data) as mem, mem.open() as src:
         assert not src.read(4).any()
 
-    assert client.get(f"/overlay/{z}/{x}/{y}.png?scene=../x_BOA.tif").status_code == 400
-    assert client.get(f"/overlay/{z}/{x}/{y}.png?scene=20240115_LEVEL2_SEN2A_BOA.tif&vis=foo").status_code == 400
+    assert client.get(url.replace("X0000_Y0000", "X0005_Y0000")).status_code == 400   # not in the cube
+    assert client.get(url.replace("X0000_Y0000", "../X0000_Y0000")).status_code == 400
+    assert client.get(url.replace("tile=X0000_Y0000&", "")).status_code == 400
+    assert client.get(f"/overlay/{z}/{x}/{y}.png?tile=X0000_Y0000&scene=../x_BOA.tif").status_code == 400
+    assert client.get(url + "&vis=foo").status_code == 400
 
 
 def test_browser_address(monkeypatch):
