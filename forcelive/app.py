@@ -360,13 +360,13 @@ def load_overlay():
 
 @app.route("/overlay/<int:z>/<int:x>/<int:y>.png")
 def overlay_tile(z, x, y):
-    """Web map tile of one acquisition (all datacube tiles of that date)."""
+    """Web map tile of one acquisition, only the datacube tile of the time series."""
     ov = load_overlay()
     if ov is None:
         return jsonify({"error": f"Not available on this server: {_overlay_error}"}), 500
     l2dir = app.config["LEVEL2_DIR"]
     try:
-        png = ov.cached_tile(l2dir, get_datacube(l2dir), request.args.get("scene", ""),
+        png = ov.cached_tile(l2dir, request.args.get("tile", ""), request.args.get("scene", ""),
                              request.args.get("vis", "true"), z, x, y)
     except ov.OverlayError as exc:
         return jsonify({"error": str(exc)}), 400

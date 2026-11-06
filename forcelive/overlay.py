@@ -1,10 +1,10 @@
 """Scene overlay: one acquisition of the datacube rendered as web map tiles.
 
 Clicking an observation in the chart shows that scene on the map. The
-browser asks for normal XYZ (Web Mercator) tiles; every tile is put
-together from the BOA files of that date in all datacube tiles it touches
-(the same file name exists in each tile folder), reprojected and stretched
-to an RGB PNG. Rendered tiles are cached in memory.
+browser asks for normal XYZ (Web Mercator) tiles; every tile is made from
+the BOA file of that date in the datacube tile of the time series only
+(not the neighbouring tiles), reprojected and stretched to an RGB PNG.
+Rendered tiles are cached in memory.
 """
 
 import math
@@ -29,7 +29,6 @@ from .bands import NODATA, band_table
 TILE = 256
 MERCATOR = CRS.from_epsg(3857)
 HALF = 20037508.342789244
-MAX_CUBE_TILES = 16      # a web tile touching more datacube tiles is not rendered (zoom in)
 GAMMA = 1.2
 
 # (bands, min, max) of reflectance x 10000, as in EE Time-Series Viewer
@@ -41,6 +40,8 @@ VIS_PRESETS = {
 
 # FORCE Level-2 file name, e.g. 20240512_LEVEL2_SEN2A_BOA.tif (no folders)
 SCENE_NAME = re.compile(r"^\d{8}_[A-Za-z0-9_.-]*BOA\.tif$")
+# datacube tile folder, e.g. X0058_Y0045
+TILE_NAME = re.compile(r"^X-?\d{4}_Y-?\d{4}$")
 
 
 class OverlayError(ValueError):
@@ -64,27 +65,15 @@ def tile_bounds(z, x, y):
     return left, top - size, left + size, top
 
 
-def cube_tiles(cube, bounds):
-    """Datacube tile indexes (tx, ty) touched by Web Mercator `bounds`."""
-    try:
-        minx, miny, maxx, maxy = transform_bounds(MERCATOR, cube.crs, *bounds, densify_pts=21)
-    except Exception:
-        return []
-    if not all(map(math.isfinite, (minx, miny, maxx, maxy))):
-        return []
-    ts = cube.tile_size
-    tx0 = int((minx - cube.x_origin) // ts)
-    tx1 = int((maxx - cube.x_origin) // ts)
-    ty0 = int((cube.y_origin - maxy) // ts)
-    ty1 = int((cube.y_origin - miny) // ts)
-    if (tx1 - tx0 + 1) * (ty1 - ty0 + 1) > MAX_CUBE_TILES:
-        return None
-    return [(tx, ty) for ty in range(ty0, ty1 + 1) for tx in range(tx0, tx1 + 1)]
+def check_tile(name):
+    if not TILE_NAME.match(name or ""):
+        raise OverlayError("Invalid tile name")
+    return name
 
 
 def _read_into(path, sensor, bands, dst, dst_transform):
     """Reproject `bands` of one BOA file into `dst` (3 x TILE x TILE, NaN
-    where still empty); only fills pixels that are empty."""
+    outside the file)."""
     table = band_table(sensor)
     indexes = [table[b] for b in bands]
     with rasterio.open(path) as src:
@@ -110,12 +99,9 @@ def _read_into(path, sensor, bands, dst, dst_transform):
         t = Affine(wt.a * win.width / out_w, wt.b, wt.c, wt.d, wt.e * win.height / out_h, wt.f)
         src_crs = src.crs
     data[data == NODATA] = np.nan
-    tmp = np.full_like(dst, np.nan)
-    reproject(data, tmp, src_transform=t, src_crs=src_crs, src_nodata=np.nan,
+    reproject(data, dst, src_transform=t, src_crs=src_crs, src_nodata=np.nan,
               dst_transform=dst_transform, dst_crs=MERCATOR, dst_nodata=np.nan,
               resampling=Resampling.nearest)
-    empty = np.isnan(dst)
-    dst[empty] = tmp[empty]
 
 
 def _dst_bounds(t):
@@ -148,10 +134,12 @@ def empty_png():
     return EMPTY_PNG
 
 
-def render_tile(l2dir, cube, scene, vis, z, x, y):
-    """PNG bytes of web tile z/x/y of `scene` (a BOA file name), or None
-    if nothing of the scene is in the tile."""
+def render_tile(l2dir, tile, scene, vis, z, x, y):
+    """PNG bytes of web tile z/x/y of `scene` (a BOA file name) in datacube
+    tile `tile` (e.g. X0058_Y0045), or None if that file is not in the web
+    tile."""
     sensor = check_scene(scene)
+    check_tile(tile)
     if vis not in VIS_PRESETS:
         raise OverlayError(f"Unknown visualisation {vis!r}")
     bands, vmin, vmax = VIS_PRESETS[vis]
@@ -161,22 +149,12 @@ def render_tile(l2dir, cube, scene, vis, z, x, y):
     if not (0 <= z <= 24 and 0 <= x < (1 << z) and 0 <= y < (1 << z)):
         raise OverlayError("Invalid tile")
 
-    bounds = tile_bounds(z, x, y)
-    tiles = cube_tiles(cube, bounds)
-    if not tiles:
-        return None
-    dst_transform = from_bounds(*bounds, TILE, TILE)
+    dst_transform = from_bounds(*tile_bounds(z, x, y), TILE, TILE)
     dst = np.full((3, TILE, TILE), np.nan, dtype=np.float32)
-    found = False
-    for tx, ty in tiles:
-        path = os.path.join(l2dir, f"X{tx:04d}_Y{ty:04d}", scene)
-        try:
-            _read_into(path, sensor, bands, dst, dst_transform)
-            found = True
-        except RasterioIOError:
-            continue    # no such file: the scene does not cover this tile
-    if not found:
-        return None
+    try:
+        _read_into(os.path.join(l2dir, tile, scene), sensor, bands, dst, dst_transform)
+    except RasterioIOError:
+        raise OverlayError(f"{scene} does not exist in {tile}")
 
     valid = ~np.isnan(dst).any(axis=0)
     if not valid.any():
@@ -211,10 +189,10 @@ class TileCache:
 tile_cache = TileCache()
 
 
-def cached_tile(l2dir, cube, scene, vis, z, x, y):
-    key = (l2dir, scene, vis, z, x, y)
+def cached_tile(l2dir, tile, scene, vis, z, x, y):
+    key = (l2dir, tile, scene, vis, z, x, y)
     hit, png = tile_cache.get(key)
     if not hit:
-        png = render_tile(l2dir, cube, scene, vis, z, x, y)
+        png = render_tile(l2dir, tile, scene, vis, z, x, y)
         tile_cache.put(key, png)
     return png

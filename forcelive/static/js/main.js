@@ -115,11 +115,12 @@ function setLoading(on) {
 
 // ---------------------------------------------------------------------------
 // Scene overlay: clicking an observation in the chart renders that scene
-// (map tiles made by the server from the BOA files of that date, in all
-// datacube tiles in view) on top of the basemap.
+// (map tiles made by the server from the BOA file of that date in the
+// datacube tile of the time series only) on top of the basemap.
 // ---------------------------------------------------------------------------
 
 let overlayPoint = null;     // observation currently shown
+let seriesTile = null;       // datacube tile of the current time series
 
 function fmtDate(ms) {
   return new Date(ms).toLocaleDateString('en-GB').replaceAll('/', '-');
@@ -199,13 +200,13 @@ function showOverlay(p) {
   // a new layer per scene, so tile events of the previous scene cannot
   // be mixed into the progress of this one
   if (overlay) map.removeLayer(overlay);
-  const params = new URLSearchParams({ scene: p.id, vis: $('visMode').value });
+  const params = new URLSearchParams({ tile: seriesTile, scene: p.id, vis: $('visMode').value });
   overlay = L.tileLayer(`/overlay/{z}/{x}/{y}.png?${params}`, {
     maxZoom: 19, opacity: Number($('opacity').value), zIndex: 10,
   });
   trackTiles(overlay, what);
   overlay.addTo(map);
-  setOverlayInfo(`${what} · ${p.id}`);
+  setOverlayInfo(`${what} · ${seriesTile}/${p.id}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -708,6 +709,7 @@ async function startJob(silent) {
   }
 
   showTile(data.tile, data.outline);
+  seriesTile = data.tile || null;
   if (!data.job) {
     setLoading(false);
     setStatus(data.name || 'Error while processing', true);
