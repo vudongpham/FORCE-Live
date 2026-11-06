@@ -20,21 +20,9 @@ from itertools import product  # noqa: E402
 import rasterio  # noqa: E402
 from pyproj import Transformer  # noqa: E402
 
+from .bands import BANDS_LND, BANDS_SEN, band_indexes  # noqa: E402,F401  (backwards compatible)
+
 EPOCH = datetime(1970, 1, 1)
-
-# FORCE Level-2 BOA band order
-#   LND: BLUE, GREEN, RED, NIR, SWIR1, SWIR2
-#   SEN2: BLUE, GREEN, RED, RE1, RE2, RE3, BNIR, NIR, SWIR1, SWIR2
-BANDS_LND = {"BLUE": 1, "GREEN": 2, "RED": 3, "NIR": 4, "SWIR1": 5, "SWIR2": 6}
-BANDS_SEN = {"BLUE": 1, "GREEN": 2, "RED": 3, "NIR": 8, "SWIR1": 9, "SWIR2": 10}
-
-
-def band_indexes(band_name, sensor):
-    """Return the 1-based band indexes that must be read for `band_name`."""
-    table = BANDS_LND if sensor.startswith("LND") else BANDS_SEN
-    if band_name == "NDVI":
-        return (table["RED"], table["NIR"])
-    return (table[band_name],)
 
 
 # ---------------------------------------------------------------------------
@@ -108,21 +96,55 @@ def find_tile(lat, lng, level_2_dir, prj_file_name="datacube-definition.prj"):
 # Quality screening
 # ---------------------------------------------------------------------------
 
+# Cloud mask levels (the "Cloud mask" control of the page)
+#   0 None:       only pixels flagged as "no data" are removed
+#   1 Default:    clouds, cloud shadows, snow, sub-zero reflectance
+#   2 Aggressive: Default + high aerosol, saturation, high sun zenith and
+#                 poor illumination
+CLOUD_MASK_LEVELS = {0: "None", 1: "Default", 2: "Aggressive"}
+
+_ANY1 = ['0', '1']
+_ANY2 = ['00', '01', '10', '11']
+
+
 @lru_cache(maxsize=4)
-def get_cso_value(best_quality=False):
+def get_cso_value(level=1):
+    """Set of the QAI values that count as a clear observation."""
+    if level is True or level is False:      # old signature: best_quality=bool
+        level = 2 if level else 1
+    level = int(level)
+    if level not in CLOUD_MASK_LEVELS:
+        raise ValueError(f"Unknown cloud mask level {level}")
+
+    filtering_none = {
+        'Valid data': ['0'],
+        'Cloud state': _ANY2,
+        'Cloud shadow flag': _ANY1,
+        'Snow flag': _ANY1,
+        'Water flag': _ANY1,
+        'Aerosol state': _ANY2,
+        'Subzero flag': _ANY1,
+        'Saturation flag': _ANY1,
+        'High sun zenith flag': _ANY1,
+        'Illumination state': _ANY2,
+        'Slope flag': _ANY1,
+        'Water vapor flag': _ANY1,
+        'Empty': ['0']
+    }
+
     filtering_default = {
         'Valid data': ['0'],
         'Cloud state': ['00'],
         'Cloud shadow flag': ['0'],
         'Snow flag': ['0'],
-        'Water flag': ['0', '1'],
-        'Aerosol state': ['00', '01', '10', '11'],
+        'Water flag': _ANY1,
+        'Aerosol state': _ANY2,
         'Subzero flag': ['0'],
-        'Saturation flag': ['0', '1'],
-        'High sun zenith flag': ['0', '1'],
-        'Illumination state': ['00', '01', '10', '11'],
-        'Slope flag': ['0', '1'],
-        'Water vapor flag': ['0', '1'],
+        'Saturation flag': _ANY1,
+        'High sun zenith flag': _ANY1,
+        'Illumination state': _ANY2,
+        'Slope flag': _ANY1,
+        'Water vapor flag': _ANY1,
         'Empty': ['0']
     }
 
@@ -131,18 +153,18 @@ def get_cso_value(best_quality=False):
         'Cloud state': ['00'],
         'Cloud shadow flag': ['0'],
         'Snow flag': ['0'],
-        'Water flag': ['0', '1'],
+        'Water flag': _ANY1,
         'Aerosol state': ['00'],
         'Subzero flag': ['0'],
         'Saturation flag': ['0'],
         'High sun zenith flag': ['0'],
         'Illumination state': ['00'],
-        'Slope flag': ['0', '1'],
-        'Water vapor flag': ['0', '1'],
+        'Slope flag': _ANY1,
+        'Water vapor flag': _ANY1,
         'Empty': ['0']
     }
 
-    filtering_list = filtering_best if best_quality else filtering_default
+    filtering_list = {0: filtering_none, 1: filtering_default, 2: filtering_best}[level]
     cso_value = [''.join(p) for p in product(*filtering_list.values())]
     return frozenset(int(x[::-1], 2) for x in cso_value)
 
