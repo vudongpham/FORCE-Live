@@ -1,7 +1,8 @@
 # FORCE Live
-- Web-based visualizing time-series data from FORCE datacube
-- Data extraction and cloud masking are performed on-the-fly
-<img width="1908" height="902" alt="a" src="https://github.com/user-attachments/assets/eb5e1b3d-77da-497c-9ac7-b39885f087c7" />
+Web-based visualizing time-series data from FORCE datacube.
+Data extraction and cloud masking are performed on-the-fly.
+
+<img width="1881" height="907" alt="force" src="https://github.com/user-attachments/assets/cce099d7-8203-4dc1-87e4-358a9989f6cf" />
 
 ### 1. Installation
 Pull the docker image
