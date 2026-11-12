@@ -50,8 +50,9 @@ VIS_PRESETS = {
 
 # FORCE Level-2 file name, e.g. 20240512_LEVEL2_SEN2A_BOA.tif (no folders)
 SCENE_NAME = re.compile(r"^\d{8}_[A-Za-z0-9_.-]*BOA\.tif$")
-# datacube tile folder, e.g. X0058_Y0045
-TILE_NAME = re.compile(r"^X-?\d{4}_Y-?\d{4}$")
+# datacube tile folder, e.g. X0058_Y0045 or X0084_Y-013: FORCE zero-pads the
+# index to 4 characters *including* the sign, so negatives have 3+ digits
+TILE_NAME = re.compile(r"^X(?:\d{4,}|-\d{3,})_Y(?:\d{4,}|-\d{3,})$")
 
 
 class OverlayError(ValueError):
