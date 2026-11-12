@@ -1,3 +1,4 @@
+import pytest
 import time
 
 from conftest import TILE_SIZE, X_ORIGIN, Y_ORIGIN, lat_lng
@@ -156,3 +157,13 @@ def test_scene_cloud(client):
 def test_page_months_and_scene_box(client):
     page = client.get("/").get_data(as_text=True)
     assert page.count('name="selectedMonths"') == 12 and 'id="sceneBox"' in page
+
+
+def test_check_tile_negative_index():
+    from forcelive.overlay import OverlayError, check_tile
+    # FORCE pads to 4 characters including the sign (f"{-13:04d}" == "-013")
+    for ok in ("X0084_Y-013", "X-001_Y0045", "X-123_Y-456", "X0058_Y0045", "X-1234_Y0001"):
+        assert check_tile(ok) == ok
+    for bad in ("X84_Y13", "X0084_Y-13", "X0084_Y--013", "../X0084_Y-013", "X0084_Y-013/..", ""):
+        with pytest.raises(OverlayError):
+            check_tile(bad)
