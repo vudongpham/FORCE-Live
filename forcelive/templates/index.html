@@ -51,6 +51,17 @@
           <label class="field"><span>Start date</span><input id="startDate" type="date" value="2025-01-01"></label>
           <label class="field"><span>End date</span><input id="endDate" type="date" value="2025-12-31"></label>
         </div>
+        <fieldset class="months" id="months">
+          <legend>Months
+            <button type="button" id="monthsAll" class="link-btn">All</button>
+            <button type="button" id="monthsNone" class="link-btn">None</button>
+          </legend>
+          <div class="chips">
+            {%- for m in ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+            <label class="chip"><input type="checkbox" name="selectedMonths" value="{{ loop.index0 }}" checked>{{ m }}</label>
+            {%- endfor %}
+          </div>
+        </fieldset>
       </section>
 
       <section class="card">
@@ -179,6 +190,23 @@
         <div id="ovProgressWrap" class="progress" aria-hidden="true"><div id="ovProgressBar"></div></div>
       </section>
     </div>
+  </div>
+
+  <!-- Information card about the selected observation, shown on the map
+       (top right), see main.js -->
+  <div id="sceneBox" class="scene-box empty" hidden>
+    <div class="sb-head">
+      <span class="sb-kicker">Selected image</span>
+      <span id="sbBadge" class="sb-badge"></span>
+    </div>
+    <div id="sbScene" class="sb-scene">No image selected</div>
+    <div class="sb-hint">Click an observation in the chart to select its scene.</div>
+    <dl class="sb-meta">
+      <dt id="sbValueLabel">Value</dt><dd id="sbValue" class="sb-value"></dd>
+      <dt>Tile</dt><dd id="sbTile" class="sb-mono"></dd>
+      <dt>File</dt><dd id="sbFile" class="sb-mono sb-file"></dd>
+      <dt>Cloud cover</dt><dd id="sbCloud" class="sb-cloud"></dd>
+    </dl>
   </div>
 </body>
 </html>

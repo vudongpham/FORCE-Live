@@ -136,3 +136,23 @@ def test_browser_address(monkeypatch):
     assert appmod.browser_address(2741, 8027) == "http://localhost:8027"
     monkeypatch.setattr(appmod, "in_container", lambda: True)
     assert "HOST_PORT" in appmod.browser_address(2741)
+
+
+def test_scene_cloud(client):
+    def cloud(scene, mask=1):
+        return client.get(f"/scene/cloud?tile=X0000_Y0000&scene={scene}&mask={mask}")
+    assert cloud("20240105_LEVEL2_LND08_BOA.tif").get_json()["cloud"] == 0
+    assert cloud("20240110_LEVEL2_LND09_BOA.tif").get_json()["cloud"] == 100
+    # saturation is removed by Aggressive only
+    assert cloud("20240120_LEVEL2_SEN2B_BOA.tif").get_json()["cloud"] == 0
+    assert cloud("20240120_LEVEL2_SEN2B_BOA.tif", 2).get_json()["cloud"] == 100
+    d = cloud("20240125_LEVEL2_SEN2B_BOA.tif").get_json()
+    assert d["cloud"] is None and "no valid" in d["error"]
+    assert cloud("../x_BOA.tif").status_code == 400
+    assert cloud("20240105_LEVEL2_LND08_BOA.tif", 0).status_code == 400
+    assert cloud("20240105_LEVEL2_LND04_BOA.tif").status_code == 400
+
+
+def test_page_months_and_scene_box(client):
+    page = client.get("/").get_data(as_text=True)
+    assert page.count('name="selectedMonths"') == 12 and 'id="sceneBox"' in page
