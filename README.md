@@ -41,8 +41,9 @@ With `-t`, the terminal shows coloured output and a live progress bar; without i
 ### Features
 - **Bands and indices**: Blue, Green, Red, NIR, SWIR1, SWIR2, the Sentinel-2 red-edge bands (RE1–RE3) and broad NIR (B8), NDVI, EVI, NBR, NDMI, NDWI, MNDWI, AWEI, MSI and Tasseled Cap brightness / greenness / wetness. Sensors without the selected band (e.g. Landsat for red edge) are skipped.
 - **Cloud mask** (QAI): *None* (only no-data pixels removed), *Default* (cloud, cloud shadow, snow, sub-zero reflectance) or *Aggressive* (Default + high aerosol, saturation, high sun zenith and poor illumination).
+- **Months**: show only the observations of the ticked months (e.g. the growing season). Applied instantly, no re-extraction; the line and the exports follow the selection.
 - **Line** through the observations, computed in the browser, so switching is instant and needs no re-extraction: linear interpolation, monotone cubic spline, adaptive moving average, adaptive Savitzky–Golay, adaptive RBF ensemble, harmonic regression (basic / advanced / full = 1 / 2 / 3 annual harmonics plus a linear trend, after [Zhu et al. 2015](https://doi.org/10.1016/j.rse.2015.02.009)) or no line. All lines span the whole selected date range.
-- **Scene overlay**: click an observation in the chart to show that scene on the map (true color, false color or SWIR). Only the datacube tile of the time series is rendered.
+- **Scene overlay**: click an observation in the chart to show that scene on the map (true color, false color or SWIR). Only the datacube tile of the time series is rendered. A card on the map shows the date, sensor, value, tile, file name and cloud cover of the selected scene (share of the valid pixels of the tile removed by the selected cloud mask, from its QAI file).
 - **Export**: copy the dates / values, download a CSV, or save the chart as PNG / JPEG.
 - **Base maps**: satellite, OpenStreetMap or blank. The datacube tile of the selected location is outlined on the map.
 - Press **Enter** anywhere to run *View time series*.

@@ -144,6 +144,21 @@ const OverlayStatus = L.Control.extend({
     return div;
   },
 });
+// information card about the selected observation (#sceneBox in the page),
+// on the map, top right
+const SceneBox = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd() {
+    const div = $('sceneBox');
+    // clicks / scrolling inside the card must not reach the map
+    // (a map click would select a new location)
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    return div;
+  },
+});
+new SceneBox().addTo(map);
+
 const overlayStatus = new OverlayStatus().addTo(map);
 
 function setOverlayProgress(text, fraction) {
@@ -186,6 +201,7 @@ function removeOverlay() {
   if (overlay) { map.removeLayer(overlay); overlay = null; }
   $('clearOverlay').disabled = true;
   updateOverlayCard();
+  updateSelectedInfo();
   setOverlayInfo('');
   setOverlayProgress(null);
   chart.update('none');
@@ -195,6 +211,7 @@ function showOverlay(p) {
   overlayPoint = p;
   $('clearOverlay').disabled = false;
   updateOverlayCard();
+  updateSelectedInfo();
   const what = `${SENSOR_LABELS[p.s] || p.s} ${fmtDate(p.x)}`;
   chart.update('none');
   // a new layer per scene, so tile events of the previous scene cannot
@@ -333,19 +350,35 @@ const chart = new Chart($('myChart').getContext('2d'), {
 
 // raw points of the current job, kept sorted by date. Points are collected
 // silently while the extraction runs; the chart is drawn only once it ends.
+// `allPoints` holds everything extracted; `series` is the part in the months
+// ticked in "Months" (all 12 by default). Chart, line and exports use `series`.
+let allPoints = [];
 let series = [];
+
+function selectedMonths() {
+  return new Set(Array.from(document.querySelectorAll('input[name="selectedMonths"]:checked'))
+    .map((el) => Number(el.value)));
+}
+
+function refreshSeries() {
+  const months = selectedMonths();
+  series = months.size === 12
+    ? allPoints.slice()
+    : allPoints.filter((p) => months.has(new Date(p.x).getUTCMonth()));
+}
 
 function insertSorted(points) {
   for (const p of points) {
     const pt = { x: p[0] * DAY_MS, y: p[1], s: p[2], d: p[0], id: p[3] };
     // binary search insertion (points mostly arrive in date order -> cheap)
-    let lo = 0, hi = series.length;
+    let lo = 0, hi = allPoints.length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (series[mid].x <= pt.x) lo = mid + 1; else hi = mid;
+      if (allPoints[mid].x <= pt.x) lo = mid + 1; else hi = mid;
     }
-    series.splice(lo, 0, pt);
+    allPoints.splice(lo, 0, pt);
   }
+  refreshSeries();
 }
 
 // ---------------------------------------------------------------------------
@@ -667,6 +700,7 @@ function revealChart() {
 let chartBand = null; // band of the chart; the manual y range is kept while it stays the same
 
 function resetChart(startDate, endDate, band) {
+  allPoints = [];
   series = [];
   $('axisNote').hidden = true;
   // drop any hovered point of the previous location: its index may not exist
@@ -694,6 +728,7 @@ function resetChart(startDate, endDate, band) {
 // draw the collected points (called once, when the extraction has ended)
 function showResults() {
   showChart(true);
+  $('sceneBox').hidden = false;                   // information card on the map
   render();
   revealChart();
 }
@@ -814,8 +849,8 @@ function handleStatus(data, cursor) {
     showResults();
     setExportEnabled(series.length > 0);
   } else if (data.status === 'cancelled') {
-    setStatus(`Stopped: ${series.length} clear observations from ${data.current} / ${data.total} images read${t}`);
-    if (series.length) showResults();
+    setStatus(`Stopped: ${allPoints.length} clear observations from ${data.current} / ${data.total} images read${t}`);
+    if (allPoints.length) showResults();
     setExportEnabled(series.length > 0);
   } else if (data.status === 'error') {
     setStatus(data.name || 'Error while processing', true);
@@ -951,6 +986,31 @@ $('lineMode').addEventListener('change', () => {
   if (!$('chartWrap').hidden) render();
 });
 
+// show only the ticked months; no new extraction needed
+function monthsChanged() {
+  refreshSeries();
+  if (!$('chartWrap').hidden) {
+    render();
+    setExportEnabled(series.length > 0);
+  }
+}
+document.querySelectorAll('input[name="selectedMonths"]').forEach((el) => {
+  el.addEventListener('change', monthsChanged);
+});
+$('monthsAll').addEventListener('click', () => {
+  document.querySelectorAll('input[name="selectedMonths"]').forEach((el) => { el.checked = true; });
+  monthsChanged();
+});
+$('monthsNone').addEventListener('click', () => {
+  document.querySelectorAll('input[name="selectedMonths"]').forEach((el) => { el.checked = false; });
+  monthsChanged();
+});
+
+// the cloud cover in the information card follows the Cloud mask of the panel
+document.querySelectorAll('input[name="cloudOption"]').forEach((el) => {
+  el.addEventListener('change', updateCloudCover);
+});
+
 // Stop: ask the server to cancel; the polling loop then receives the
 // 'cancelled' status and draws whatever was extracted so far.
 $('stopButton').addEventListener('click', async () => {
@@ -1065,4 +1125,107 @@ function updateOverlayCard() {
   $('overlayRow').classList.toggle('inactive', !scene);
   $('visMode').disabled = !scene;
   $('opacity').disabled = !scene;
+}
+
+// ---------------------------------------------------------------------------
+// Information card on the map: date, sensor, value, tile, file and cloud
+// cover of the observation selected in the chart
+// ---------------------------------------------------------------------------
+
+// long file names wrap after an underscore, not inside a word
+function setBreakable(el, text) {
+  el.textContent = '';
+  String(text).split(/(?<=_)/).forEach((part, i) => {
+    if (i) el.appendChild(document.createElement('wbr'));
+    el.appendChild(document.createTextNode(part));
+  });
+}
+
+// sensor chip in the card header, in the colour of its points in the chart
+function setBadge(sensor) {
+  const b = $('sbBadge');
+  b.textContent = sensor ? (SENSOR_LABELS[sensor] || sensor) : '';
+  b.classList.toggle('lnd', !!sensor && sensor.startsWith('LND'));
+  b.classList.toggle('sen', !!sensor && sensor.startsWith('SEN'));
+}
+
+function updateSelectedInfo() {
+  const box = $('sceneBox');
+  const p = overlayPoint;
+  box.classList.toggle('empty', !p);
+  if (!p) {
+    $('sbScene').textContent = 'No image selected';
+    setBadge(null);
+    ['sbValue', 'sbTile', 'sbFile'].forEach((id) => { $(id).textContent = ''; });
+    updateCloudCover();
+    return;
+  }
+  $('sbScene').textContent = new Date(p.x).toLocaleDateString('en-GB',
+    { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  setBadge(p.s);
+  const band = chartBand || $('Bands').value;
+  $('sbValueLabel').textContent = BAND_TITLES[band] || band;
+  $('sbValue').textContent = String(p.y);
+  $('sbValue').title = `${BAND_TITLES[band] || band} × 10000`;
+  $('sbTile').textContent = seriesTile || '–';
+  setBreakable($('sbFile'), p.id);
+  $('sbFile').title = p.id;
+  updateCloudCover();
+}
+
+// Cloud cover of the selected scene: valid pixels removed by the Cloud mask
+// of the panel (None -> Default) / valid pixels of the whole datacube tile,
+// from the QAI file of the scene
+const MASK_LABELS = { 1: 'Default', 2: 'Aggressive' };
+let shownCloud = null;
+let cloudRequest = 0;
+const cloudResults = new Map();   // tile/scene/level -> result, so switching back is instant
+
+function showCloud(el, label, d) {
+  if (d.cloud != null) {
+    el.innerHTML = `<div class="sb-cloud-row"><span class="sb-cloud-value">${d.cloud.toFixed(1)} %</span>` +
+      `<span class="sb-cloud-mask">${label}</span></div>` +
+      `<div class="sb-meter"><span style="width:${Math.min(100, Math.max(0, d.cloud))}%"></span></div>`;
+    el.title = `${d.valid_pixels.toLocaleString('en')} valid pixels on a ${d.scale} m grid; ` +
+               'masked pixels (clouds, shadows, snow, ...) / valid pixels of the whole tile';
+  } else {
+    el.textContent = `unavailable (${d.error || 'no valid pixels'})`;
+    el.classList.add('error');
+  }
+}
+
+function updateCloudCover() {
+  const el = $('sbCloud');
+  const p = overlayPoint;
+  if (!p) {
+    shownCloud = null;
+    cloudRequest++;
+    el.textContent = '';
+    el.classList.remove('error');
+    return;
+  }
+  const panel = Number(document.querySelector('input[name="cloudOption"]:checked').value);
+  const level = panel >= 1 ? panel : 1;
+  const key = `${seriesTile}/${p.id}/${level}`;
+  if (key === shownCloud) return;
+  shownCloud = key;
+  const req = ++cloudRequest;
+  const label = `${MASK_LABELS[level]} mask`;
+  el.classList.remove('error');
+  el.title = '';
+  if (cloudResults.has(key)) { showCloud(el, label, cloudResults.get(key)); return; }
+  el.innerHTML = '<div class="sb-cloud-row"><span class="sb-cloud-mask">computing…</span></div>';
+  const params = new URLSearchParams({ tile: seriesTile, scene: p.id, mask: level });
+  fetch(`/scene/cloud?${params}`)
+    .then((r) => r.json())
+    .then((d) => {
+      if (d.cloud != null) cloudResults.set(key, d);
+      if (req !== cloudRequest) return;
+      showCloud(el, label, d);
+    })
+    .catch((err) => {
+      if (req !== cloudRequest) return;
+      el.textContent = `unavailable (${err.message})`;
+      el.classList.add('error');
+    });
 }

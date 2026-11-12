@@ -224,6 +224,20 @@ input.coord.invalid {
 .chip:has(input:checked) { border-color: #93b4d6; background: #eef5fc; }
 .chip input { margin: 0; }
 
+/* month filter under the dates */
+.months { margin: 10px 0 0; padding: 0; border: 0; min-width: 0; }
+.months legend { padding: 0; font-size: 12px; font-weight: 600; }
+.link-btn {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 12px var(--font);
+  color: #2b6cb0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 /* datacube tile of the selected location */
 .tile-name {
   display: flex;
@@ -363,6 +377,8 @@ input.coord.invalid {
   gap: 6px 10px;
   margin: 4px 4px 2px;
 }
+
+.y-range[hidden] { display: none; }
 
 .y-field {
   display: inline-flex;
@@ -545,4 +561,131 @@ input.coord.invalid {
 
 .leaflet-control-layers-expanded {
   padding: 0.35rem 0.6rem 0.35rem 0.4rem;
+}
+
+/* ---------------------------------------------------------------------
+   Information card about the selected observation (map, top right)
+   --------------------------------------------------------------------- */
+.scene-box {
+  --sb-muted: #6b7280;
+  width: 270px;
+  max-width: calc(100vw - 80px);
+  box-sizing: border-box;
+  padding: 12px 14px 14px;
+  background: rgba(255, 255, 255, 0.97);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22), 0 1px 3px rgba(0, 0, 0, 0.12);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #1f2937;
+  cursor: default;
+}
+
+.scene-box[hidden] { display: none; }
+
+.scene-box .sb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scene-box .sb-kicker {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sb-muted);
+}
+
+.scene-box .sb-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: #9ca3af;
+  white-space: nowrap;
+}
+
+.scene-box .sb-badge:empty { display: none; }
+.scene-box .sb-badge.lnd { background: rgb(197, 27, 138); }
+.scene-box .sb-badge.sen { background: rgb(35, 139, 69); }
+
+.scene-box .sb-scene {
+  margin-top: 2px;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: #111827;
+}
+
+.scene-box .sb-hint {
+  display: none;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--sb-muted);
+}
+
+/* nothing selected: only the hint */
+.scene-box.empty .sb-scene { font-size: 15px; font-weight: 600; color: #4b5563; }
+.scene-box.empty .sb-hint { display: block; }
+.scene-box.empty .sb-meta { display: none; }
+
+.scene-box .sb-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  background: #f6f7f9;
+  border-radius: 7px;
+}
+
+.scene-box .sb-meta dt {
+  color: var(--sb-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.scene-box .sb-meta dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.scene-box .sb-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.scene-box .sb-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;   /* only if a part between underscores is too long */
+}
+
+.scene-box .sb-file { color: rgb(30, 110, 55); }
+.scene-box .error { color: #b00020; }
+
+/* cloud cover: value, mask level and a small bar */
+.scene-box .sb-cloud-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.scene-box .sb-cloud-value { font-weight: 700; font-size: 13px; }
+.scene-box .sb-cloud-mask { color: var(--sb-muted); font-size: 11px; }
+
+.scene-box .sb-meter {
+  height: 4px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: #e2e5ea;
+  overflow: hidden;
+}
+
+.scene-box .sb-meter > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #7aa7d6, #4b6584);
+  border-radius: 2px;
 }

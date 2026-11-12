@@ -377,6 +377,26 @@ def overlay_tile(z, x, y):
                     headers={"Cache-Control": "private, max-age=3600"})
 
 
+@app.route("/scene/cloud")
+def scene_cloud():
+    """Cloud cover of one acquisition (QAI of the whole datacube tile)."""
+    ov = load_overlay()
+    if ov is None:
+        return jsonify({"cloud": None, "error": f"not available on this server: {_overlay_error}"}), 500
+    try:
+        level = int(request.args.get("mask", 1))
+        if level not in CLOUD_MASK_LEVELS or level == 0:
+            raise ValueError(f"unknown cloud mask {level}")
+        result = ov.cloud_cover(app.config["LEVEL2_DIR"], request.args.get("tile", ""),
+                                request.args.get("scene", ""), level)
+    except (ValueError, ov.OverlayError) as exc:
+        return jsonify({"cloud": None, "error": str(exc)}), 400
+    except Exception as exc:
+        console.warn("Cloud", short_error(exc))
+        return jsonify({"cloud": None, "error": str(exc)}), 500
+    return jsonify(result)
+
+
 def in_container():
     return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
 

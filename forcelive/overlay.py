@@ -206,3 +206,45 @@ def cached_tile(l2dir, tile, scene, vis, z, x, y):
         png = render_tile(l2dir, tile, scene, vis, z, x, y)
         tile_cache.put(key, png)
     return png
+
+
+# ---------------------------------------------------------------------------
+# Cloud cover of a scene (shown in the information card on the map)
+# ---------------------------------------------------------------------------
+
+CLOUD_MAX_SIDE = 1000      # decimated read of the QAI file: at most this many pixels per side
+cloud_cache = TileCache(maxsize=2000)
+
+
+def cloud_cover(l2dir, tile, scene, level):
+    """Share (%) of the valid pixels of `scene` in datacube tile `tile` that
+    the cloud mask `level` removes (clouds, shadows, snow, ...), from the
+    QAI file of the scene, read at a reduced resolution."""
+    from .utils import get_cso_value
+
+    check_scene(scene)
+    check_tile(tile)
+    key = (l2dir, tile, scene, level)
+    hit, result = cloud_cache.get(key)
+    if hit:
+        return result
+    clear_values = np.fromiter(get_cso_value(level), dtype=np.int64)
+    path = os.path.join(l2dir, tile, scene.replace("BOA", "QAI"))
+    try:
+        with rasterio.open(path) as src:
+            f = max(1, math.ceil(max(src.width, src.height) / CLOUD_MAX_SIDE))
+            shape = (max(1, src.height // f), max(1, src.width // f))
+            qai = src.read(1, out_shape=shape, resampling=Resampling.nearest).astype(np.int64)
+            res = abs(src.transform.a) * src.width / shape[1]
+    except RasterioIOError:
+        raise OverlayError(f"{scene} has no QAI file in {tile}")
+    valid = (qai & 1) == 0           # bit 0: no data
+    n_valid = int(valid.sum())
+    if n_valid:
+        n_clear = int(np.isin(qai[valid], clear_values).sum())
+        result = {"cloud": round(100 * (n_valid - n_clear) / n_valid, 2),
+                  "valid_pixels": n_valid, "scale": round(res, 1)}
+    else:
+        result = {"cloud": None, "error": "no valid pixels"}
+    cloud_cache.put(key, result)
+    return result
